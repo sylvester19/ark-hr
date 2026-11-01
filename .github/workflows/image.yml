@@ -1,8 +1,15 @@
 name: image
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - Dockerfile
+      - start.sh
+      - requirements.txt
+      - src/**
+      - web/**
 
 permissions:
   contents: read

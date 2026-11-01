@@ -1,0 +1,23 @@
+name: packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find the container package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          echo "USER"
+          gh api "/user/packages?package_type=container"
+          echo "USERS"
+          gh api "/users/sylvester19/packages?package_type=container"
+          echo "GRAPH"
+          gh api graphql -f query='query { viewer { packages(first: 20, packageType: CONTAINER) { nodes { name visibility } } } }'
