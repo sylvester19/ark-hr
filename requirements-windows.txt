@@ -1,0 +1,3 @@
+# Optional Windows fallbacks. The server path is LibreOffice, Tesseract, and the local LLM.
+pywin32==311
+winocr==0.0.15

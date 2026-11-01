@@ -1,0 +1,6 @@
+<svg width="300" height="80" viewBox="0 0 300 80" xmlns="http://www.w3.org/2000/svg">
+<path d="M 18 74 L 50 6 L 82 74 L 69 74 L 50 30 L 31 74 Z" fill="#4A9EFF"/>
+<path d="M 39 46 L 81 46 L 74 55 L 46 55 Z" fill="#08080B"/>
+<text x="100" y="40" font-family="Inter Tight, sans-serif" font-size="34" font-weight="500" fill="#FFFFFF" letter-spacing="-0.5">ARK</text>
+<text x="100" y="70" font-family="Inter Tight, sans-serif" font-size="34" font-weight="500" fill="#8B8A94" letter-spacing="-0.5">IMPEX</text>
+</svg>
