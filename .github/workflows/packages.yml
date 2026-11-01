@@ -14,10 +14,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set +e
-          echo "USER"
-          gh api "/user/packages?package_type=container"
-          echo "USERS"
-          gh api "/users/sylvester19/packages?package_type=container"
-          echo "GRAPH"
-          gh api graphql -f query='query { viewer { packages(first: 20, packageType: CONTAINER) { nodes { name visibility } } } }'
+          gh api graphql -f query='query { viewer { packages(first: 20, packageType: DOCKER) { nodes { name } } } }' || true
+          gh api --method PATCH /user/packages/container/ark-hr -f visibility=public || true
+          gh api --method PATCH /repos/sylvester19/ark-hr/packages/container/ark-hr -f visibility=public || true
