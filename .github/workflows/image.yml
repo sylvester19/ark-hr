@@ -26,4 +26,4 @@ jobs:
       - name: Make the image public so Azure can pull it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh api --method PATCH /user/packages/container/ark-hr -f visibility=public
+        run: gh api --method PATCH "/repos/${{ github.repository }}/packages/container/ark-hr" -f visibility=public
