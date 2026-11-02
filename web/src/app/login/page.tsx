@@ -41,7 +41,7 @@ export default function LoginPage() {
     <main className="login-split">
       <section className="login-form">
         <div className="login-inner">
-          <img src="/logo-icon.svg" alt="ARK IMPEX" width={36} height={36} />
+          <img src="/logo-icon.svg" alt="ARK HR" width={36} height={36} />
           <h1>Sign in</h1>
           <p className="login-sub">Bulk CV translation for Group Arkays</p>
           <button className="ms-btn" onClick={microsoft} disabled={busy || !config?.microsoft}>

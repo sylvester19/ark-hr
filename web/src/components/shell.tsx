@@ -44,7 +44,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <aside className="side">
         <div className="side-head">
           <Link href="/new">
-            <img src={collapsed ? "/logo-icon.svg" : "/logo-full.svg"} alt="ARK IMPEX" />
+            <img src={collapsed ? "/logo-icon.svg" : "/logo-full.svg"} alt="ARK HR" />
           </Link>
           <button type="button" aria-label="Collapse sidebar" onClick={() => setCollapsed((value) => !value)}>
             {collapsed ? "»" : "«"}
