@@ -1,9 +1,14 @@
-"""Self-hosted model only. Temperature 0. The runtime's JSON schema is enforced."""
+"""Temperature 0. The runtime's JSON schema is enforced.
+
+A Groq free-tier key translates in the cloud. Otherwise the app uses a private
+Ollama server or the local Qwen file.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -43,10 +48,14 @@ class Translator(Protocol):
 
 
 DEFAULT_GGUF_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+DEFAULT_GROQ_MODELS = ("openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b")
 
 
 def build_translator(settings) -> Translator:
-    """One LLM path everywhere. Ollama when it is configured, otherwise the local Qwen GGUF."""
+    """Groq when a free key is set. Otherwise Ollama, then the local Qwen file."""
+    if getattr(settings, "groq_api_key", ""):
+        return GroqTranslator(settings.groq_api_key, _groq_models())
     if settings.model:
         return OllamaTranslator(settings.ai_base_url, settings.model, settings.ai_allowlist)
     if _ollama_ready(settings.ai_base_url):
@@ -76,6 +85,108 @@ def _ollama_ready(base_url: str) -> bool:
     except Exception:
         return False
     return any(name.startswith("qwen2.5") for name in names)
+
+
+def _groq_models() -> tuple[str, ...]:
+    raw = os.environ.get("ARK_HR_GROQ_MODELS", "").strip()
+    if not raw:
+        return DEFAULT_GROQ_MODELS
+    models = tuple(part.strip() for part in raw.split(",") if part.strip())
+    return models or DEFAULT_GROQ_MODELS
+
+
+class GroqTranslator:
+    """Free Groq tier. CV text leaves Group Arkays. A rate limit tries the next free model."""
+
+    def __init__(self, api_key: str, models: tuple[str, ...]) -> None:
+        self._api_key = api_key
+        self._models = models
+        self.engine = f"groq:{models[0]}"
+
+    def structure(self, source_text: str, language: str, repair: str = "") -> dict[str, Any]:
+        note = f"\nFix these problems from the previous attempt:\n{repair}" if repair else ""
+        prompt = f"Detected language: {language or 'unknown'}.\nSource CV:\n{source_text}{note}"
+        return normalise_cv(self._json(SYSTEM, prompt))
+
+    def requirements(self, job_text: str) -> dict[str, list[str]]:
+        raw = self._json(
+            "Turn the job description into a checklist of must-haves and nice-to-haves. "
+            "Do not invent requirements that are not written. Return JSON with keys must and nice.",
+            job_text,
+        )
+        from ark_hr.score import normalise_checklist
+
+        return normalise_checklist(raw)
+
+    def score_cv(self, checklist: dict[str, list[str]], public_cv: dict[str, Any]) -> dict[str, Any]:
+        prompt = (
+            "Score this CV against the checklist. Use only the CV JSON. "
+            "For every item say met, partly, or not_met, and quote the CV line that proves it. "
+            "Do not use name, age, gender, nationality, religion, or marital status. "
+            "Return JSON with keys must, nice, strengths, and gaps.\n"
+            f"Checklist:\n{json.dumps(checklist)}\nCV:\n{json.dumps(public_cv)}"
+        )
+        return self._json("You score CVs. Return JSON only.", prompt)
+
+    def _json(self, system: str, user: str) -> dict[str, Any]:
+        content = self._complete(system, user)
+        try:
+            return _parse_json_object(content)
+        except json.JSONDecodeError as exc:
+            raise ModelError("The translation model did not return JSON.") from exc
+
+    def _complete(self, system: str, user: str) -> str:
+        last_error = ModelError("The free translation service did not answer.")
+        for model in self._models:
+            for use_schema in (True, False):
+                try:
+                    content = self._post(model, system, user, use_schema)
+                except ModelError as exc:
+                    last_error = exc
+                    if "rate limit" in str(exc) or "too long" in str(exc):
+                        break
+                    if use_schema:
+                        continue
+                    break
+                if content.strip():
+                    self.engine = f"groq:{model}"
+                    return content
+        raise last_error
+
+    def _post(self, model: str, system: str, user: str, use_schema: bool) -> str:
+        payload: dict[str, Any] = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": 4096,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        }
+        if use_schema:
+            payload["response_format"] = {"type": "json_object"}
+        try:
+            response = httpx.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                json=payload,
+                timeout=90,
+            )
+        except httpx.HTTPError as exc:
+            raise ModelError("The free translation service could not be reached.") from exc
+        if response.status_code == 429:
+            delay = response.headers.get("retry-after", "2")
+            try:
+                time.sleep(min(float(delay), 8))
+            except ValueError:
+                time.sleep(2)
+            raise ModelError("The free translation service hit its rate limit.")
+        if response.status_code == 413:
+            raise ModelError("This CV is too long for the free translation limit.")
+        if response.status_code >= 400:
+            raise ModelError("The free translation service rejected this CV.")
+        message = response.json()["choices"][0]["message"]
+        return str(message.get("content") or "")
 
 
 class UnavailableTranslator:

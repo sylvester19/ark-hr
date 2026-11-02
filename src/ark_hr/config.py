@@ -62,6 +62,7 @@ class Settings:
     azure_container: str
     azure_region: str
     graph_sender: str
+    groq_api_key: str
     data_dir: Path
 
     @property
@@ -93,7 +94,7 @@ class Settings:
                 problems.append("CV files must stay in Azure UAE North.")
             if not self.azure_connection_string or not self.azure_container:
                 problems.append("Azure Blob connection string and container are required in production.")
-            if not self.model and not os.environ.get("ARK_HR_GGUF", "").strip():
+            if not self.model and not self.groq_api_key and not os.environ.get("ARK_HR_GGUF", "").strip():
                 problems.append("Choose a benchmarked open-source model before production.")
         if self.ai_base_url:
             from ark_hr.ai_guard import assert_private_ai_url
@@ -142,6 +143,7 @@ def load_settings() -> Settings:
         azure_container=_flag("ARK_HR_AZURE_CONTAINER", "ark-hr-cvs"),
         azure_region=_flag("ARK_HR_AZURE_REGION", "uaenorth").lower(),
         graph_sender=_flag("ARK_HR_GRAPH_SENDER"),
+        groq_api_key=_flag("ARK_HR_GROQ_API_KEY") or _flag("GROQ_API_KEY"),
         data_dir=data,
     )
     return settings

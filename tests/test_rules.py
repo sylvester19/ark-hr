@@ -246,6 +246,7 @@ def _settings(tmp_path: Path, phase: int = 1) -> Settings:
         azure_container="ark-hr-cvs",
         azure_region="uaenorth",
         graph_sender="",
+        groq_api_key="",
         data_dir=tmp_path,
     )
 
@@ -371,6 +372,41 @@ def test_a_year_range_is_not_a_new_phone_number():
 
     assert _phone_keys("Licence 2014-2016, Douala") == set()
     assert "237699123456" in _phone_keys("Tel +237 699 123 456")
+
+
+def test_groq_free_tier_translates_and_falls_over_when_limited(tmp_path: Path, monkeypatch):
+    from ark_hr.translate import build_translator
+
+    settings = Settings(**{**_settings(tmp_path).__dict__, "groq_api_key": "test-key"})
+    import json as json_module
+
+    calls: list[str] = []
+
+    class Response:
+        def __init__(self, status: int, content: str = "") -> None:
+            self.status_code = status
+            self.headers = {"retry-after": "0"}
+            self._content = content
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    def fake_post(url, headers, json, timeout):
+        assert url.endswith("/chat/completions")
+        assert headers["Authorization"] == "Bearer test-key"
+        calls.append(json["model"])
+        if json["model"] == "openai/gpt-oss-20b":
+            return Response(429)
+        return Response(200, json_module.dumps(GOOD))
+
+    monkeypatch.setattr("ark_hr.translate.httpx.post", fake_post)
+    monkeypatch.setattr("ark_hr.translate.time.sleep", lambda _seconds: None)
+    translator = build_translator(settings)
+    cv = translator.structure(SOURCE, "french")
+    assert calls[0] == "openai/gpt-oss-20b"
+    assert "qwen/qwen3.8-27b" in calls
+    assert cv["full_name"] == "Jean-Baptiste Mbarga"
+    assert translator.engine == "groq:qwen/qwen3.8-27b"
 
 
 def test_missing_model_fails_the_file_instead_of_calling_a_public_api(tmp_path: Path, monkeypatch):
