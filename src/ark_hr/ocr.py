@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import shutil
 
 
@@ -10,38 +11,44 @@ class OcrError(Exception):
     pass
 
 
+def _tesseract_text(image) -> str:
+    import pytesseract
+
+    windows_exe = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    if not shutil.which("tesseract") and os.path.isfile(windows_exe):
+        pytesseract.pytesseract.tesseract_cmd = windows_exe
+    elif not shutil.which("tesseract") and not os.path.isfile(getattr(pytesseract.pytesseract, "tesseract_cmd", "")):
+        return ""
+    for lang in ("fra+eng+ara+por", "fra+eng", "eng"):
+        try:
+            text = pytesseract.image_to_string(image, lang=lang)
+        except Exception:
+            continue
+        if text and text.strip():
+            return text.strip()
+    return ""
+
+
 def ocr_image(data: bytes) -> str:
     # Tesseract is the same engine on Windows, Linux, and the server image.
-    if shutil.which("tesseract"):
-        try:
-            import pytesseract
-            from PIL import Image
-        except ImportError as exc:
-            raise OcrError("OCR libraries are not installed on this server.") from exc
-        try:
-            image = Image.open(io.BytesIO(data))
-            text = pytesseract.image_to_string(image, lang="fra+eng+ara+por")
-        except Exception as exc:
-            raise OcrError("OCR could not read this image.") from exc
-        if text.strip():
-            return text.strip()
-    windows_text = _windows_ocr(data)
-    if windows_text:
-        return windows_text
-    raise OcrError("This image could not be read. Install Tesseract with French, English, Arabic, and Portuguese.")
     try:
-        import pytesseract
         from PIL import Image
     except ImportError as exc:
         raise OcrError("OCR libraries are not installed on this server.") from exc
     try:
         image = Image.open(io.BytesIO(data))
-        text = pytesseract.image_to_string(image, lang="fra+eng+ara+por")
     except Exception as exc:
         raise OcrError("OCR could not read this image.") from exc
-    if not text.strip():
-        raise OcrError("OCR found no text in this image.")
-    return text
+    try:
+        text = _tesseract_text(image)
+    except ImportError as exc:
+        raise OcrError("OCR libraries are not installed on this server.") from exc
+    if text:
+        return text
+    windows_text = _windows_ocr(data)
+    if windows_text:
+        return windows_text
+    raise OcrError("This image could not be read. Install Tesseract with French, English, Arabic, and Portuguese.")
 
 
 def _windows_ocr(data: bytes) -> str:
