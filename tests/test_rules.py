@@ -395,7 +395,7 @@ def test_groq_free_tier_translates_and_falls_over_when_limited(tmp_path: Path, m
         assert url.endswith("/chat/completions")
         assert headers["Authorization"] == "Bearer test-key"
         calls.append(json["model"])
-        if json["model"] == "openai/gpt-oss-20b":
+        if json["model"] == "qwen/qwen3.8-27b":
             return Response(429)
         return Response(200, json_module.dumps(GOOD))
 
@@ -403,10 +403,10 @@ def test_groq_free_tier_translates_and_falls_over_when_limited(tmp_path: Path, m
     monkeypatch.setattr("ark_hr.translate.time.sleep", lambda _seconds: None)
     translator = build_translator(settings)
     cv = translator.structure(SOURCE, "french")
-    assert calls[0] == "openai/gpt-oss-20b"
-    assert "qwen/qwen3.8-27b" in calls
+    assert calls[0] == "qwen/qwen3.8-27b"
+    assert "openai/gpt-oss-120b" in calls
     assert cv["full_name"] == "Jean-Baptiste Mbarga"
-    assert translator.engine == "groq:qwen/qwen3.8-27b"
+    assert translator.engine == "groq:openai/gpt-oss-120b"
 
 
 def test_missing_model_fails_the_file_instead_of_calling_a_public_api(tmp_path: Path, monkeypatch):

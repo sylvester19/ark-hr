@@ -49,7 +49,7 @@ class Translator(Protocol):
 
 DEFAULT_GGUF_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_GROQ_MODELS = ("openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b")
+DEFAULT_GROQ_MODELS = ("qwen/qwen3.8-27b", "openai/gpt-oss-120b", "openai/gpt-oss-20b")
 
 
 def build_translator(settings) -> Translator:
@@ -106,13 +106,21 @@ class GroqTranslator:
     def structure(self, source_text: str, language: str, repair: str = "") -> dict[str, Any]:
         note = f"\nFix these problems from the previous attempt:\n{repair}" if repair else ""
         prompt = f"Detected language: {language or 'unknown'}.\nSource CV:\n{source_text}{note}"
-        return normalise_cv(self._json(SYSTEM, prompt))
+        return normalise_cv(self._json(SYSTEM, prompt, CV_JSON_SCHEMA))
 
     def requirements(self, job_text: str) -> dict[str, list[str]]:
         raw = self._json(
             "Turn the job description into a checklist of must-haves and nice-to-haves. "
             "Do not invent requirements that are not written. Return JSON with keys must and nice.",
             job_text,
+            {
+                "type": "object",
+                "properties": {
+                    "must": {"type": "array", "items": {"type": "string"}},
+                    "nice": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["must", "nice"],
+            },
         )
         from ark_hr.score import normalise_checklist
 
@@ -126,21 +134,36 @@ class GroqTranslator:
             "Return JSON with keys must, nice, strengths, and gaps.\n"
             f"Checklist:\n{json.dumps(checklist)}\nCV:\n{json.dumps(public_cv)}"
         )
-        return self._json("You score CVs. Return JSON only.", prompt)
+        return self._json(
+            "You score CVs. Return JSON only.",
+            prompt,
+            {
+                "type": "object",
+                "properties": {
+                    "must": {"type": "array", "items": {"type": "object"}},
+                    "nice": {"type": "array", "items": {"type": "object"}},
+                    "strengths": {"type": "string"},
+                    "gaps": {"type": "string"},
+                },
+                "required": ["must", "nice", "strengths", "gaps"],
+            },
+        )
 
-    def _json(self, system: str, user: str) -> dict[str, Any]:
-        content = self._complete(system, user)
+    def _json(self, system: str, user: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+        if schema is not None:
+            user = f"{user}\n\nUse exactly these JSON keys:\n{json.dumps(schema)}"
+        content = self._complete(system, user, schema)
         try:
             return _parse_json_object(content)
         except json.JSONDecodeError as exc:
             raise ModelError("The translation model did not return JSON.") from exc
 
-    def _complete(self, system: str, user: str) -> str:
+    def _complete(self, system: str, user: str, schema: dict[str, Any] | None) -> str:
         last_error = ModelError("The free translation service did not answer.")
         for model in self._models:
             for use_schema in (True, False):
                 try:
-                    content = self._post(model, system, user, use_schema)
+                    content = self._post(model, system, user, schema if use_schema else None)
                 except ModelError as exc:
                     last_error = exc
                     if "rate limit" in str(exc) or "too long" in str(exc):
@@ -153,7 +176,7 @@ class GroqTranslator:
                     return content
         raise last_error
 
-    def _post(self, model: str, system: str, user: str, use_schema: bool) -> str:
+    def _post(self, model: str, system: str, user: str, schema: dict[str, Any] | None) -> str:
         payload: dict[str, Any] = {
             "model": model,
             "temperature": 0,
@@ -163,8 +186,13 @@ class GroqTranslator:
                 {"role": "user", "content": user},
             ],
         }
-        if use_schema:
-            payload["response_format"] = {"type": "json_object"}
+        if model.startswith("openai/gpt-oss"):
+            payload["reasoning_effort"] = "low"
+        if schema is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "ark_hr", "strict": True, "schema": schema},
+            }
         try:
             response = httpx.post(
                 GROQ_URL,
