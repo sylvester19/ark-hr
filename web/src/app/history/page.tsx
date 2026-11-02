@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/shell";
-import { api, type Batch, type User } from "@/lib/api";
+import { api, localWhen, type Batch, type User } from "@/lib/api";
 
 export default function HistoryPage() {
   return (
@@ -30,6 +30,15 @@ function History() {
     load().catch((err) => setError(err.message));
   }, []);
 
+  const pending = rows.some((row) => row.status === "queued" || row.status === "running");
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setInterval(() => {
+      load().catch((err) => setError(err.message));
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
   return (
     <div>
       <h1>History</h1>
@@ -52,7 +61,7 @@ function History() {
               <td>
                 <Link href={`/batches/${row.id}`}>{row.name}</Link>
               </td>
-              <td>{row.created_at.replace("T", " ").slice(0, 16)}</td>
+              <td>{localWhen(row.created_at)}</td>
               <td>{row.owner_email}</td>
               <td>{row.file_count}</td>
               <td>{row.status}</td>

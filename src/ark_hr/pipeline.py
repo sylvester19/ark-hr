@@ -60,6 +60,7 @@ def process_file(
     row = db.file(file_id)
     if not row:
         return
+    db.set_batch(batch_id, status="running")
     db.set_file(file_id, status="Reading", reason=None)
     try:
         raw = storage.get(original_key(batch_id, file_id))

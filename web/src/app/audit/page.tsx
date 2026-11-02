@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/shell";
-import { api } from "@/lib/api";
+import { api, localWhen } from "@/lib/api";
 
 type Row = { id: number; at: string; actor: string; action: string; batch_id: string | null; file_count: number | null };
 
@@ -36,7 +36,7 @@ function Log() {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>{row.at.replace("T", " ").slice(0, 16)}</td>
+              <td>{localWhen(row.at)}</td>
               <td>{row.actor}</td>
               <td>{row.action}</td>
               <td>{row.batch_id || "—"}</td>
