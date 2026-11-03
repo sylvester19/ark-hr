@@ -66,7 +66,12 @@ def process_file(
         raw = storage.get(original_key(batch_id, file_id))
         text, ocr_used = _read(raw, row["original_name"], phase)
     except (ReadError, OcrError) as exc:
-        db.set_file(file_id, status="Failed", reason=str(exc), ocr_used=0)
+        db.set_file(file_id, status="Failed", reason=_safe_reason(exc), ocr_used=0)
+        _maybe_finish(db, storage, translator, data_dir, phase, batch_id)
+        return
+    except Exception as exc:
+        log.warning("file %s could not be read (%s)", file_id, type(exc).__name__)
+        db.set_file(file_id, status="Failed", reason=_safe_reason(exc), ocr_used=0)
         _maybe_finish(db, storage, translator, data_dir, phase, batch_id)
         return
 
@@ -89,7 +94,12 @@ def process_file(
                 result = type(result)(False, [*result.reasons, leftover])
             cv = revised
     except ModelError as exc:
-        db.set_file(file_id, status="Failed", reason=str(exc))
+        db.set_file(file_id, status="Failed", reason=_safe_reason(exc))
+        _maybe_finish(db, storage, translator, data_dir, phase, batch_id)
+        return
+    except Exception as exc:
+        log.warning("file %s could not be translated (%s)", file_id, type(exc).__name__)
+        db.set_file(file_id, status="Failed", reason=_safe_reason(exc))
         _maybe_finish(db, storage, translator, data_dir, phase, batch_id)
         return
 
@@ -106,6 +116,20 @@ def process_file(
     storage.put(docx_key(batch_id, file_id), docx)
     db.set_file(file_id, status=status, reason=None if result.ok else result.reason)
     _maybe_finish(db, storage, translator, data_dir, phase, batch_id)
+
+
+def _safe_reason(exc: BaseException) -> str:
+    text = " ".join(str(exc).split())
+    lower = text.casefold()
+    if (
+        not text
+        or "json" in lower
+        or "traceback" in lower
+        or "expecting value" in lower
+        or "syntaxerror" in lower
+    ):
+        return "This CV could not be translated. Run it again on its own."
+    return text[:300]
 
 
 def _in_source(value: str, source: str) -> bool:

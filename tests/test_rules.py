@@ -374,6 +374,33 @@ def test_a_year_range_is_not_a_new_phone_number():
     assert "237699123456" in _phone_keys("Tel +237 699 123 456")
 
 
+def test_groq_tries_the_next_model_when_the_reply_is_not_an_object(tmp_path: Path, monkeypatch):
+    from ark_hr.translate import build_translator
+
+    settings = Settings(**{**_settings(tmp_path).__dict__, "groq_api_key": "test-key"})
+    import json as json_module
+
+    class Response:
+        def __init__(self, content: str) -> None:
+            self.status_code = 200
+            self.headers = {}
+            self._content = content
+
+        def json(self) -> dict:
+            return {"choices": [{"message": {"content": self._content}}]}
+
+    def fake_post(url, headers, json, timeout):
+        if json["model"] == "qwen/qwen3.8-27b":
+            return Response("not a cv")
+        return Response(json_module.dumps(GOOD))
+
+    monkeypatch.setattr("ark_hr.translate.httpx.post", fake_post)
+    translator = build_translator(settings)
+    cv = translator.structure(SOURCE, "french")
+    assert cv["full_name"] == "Jean-Baptiste Mbarga"
+    assert translator.engine == "groq:openai/gpt-oss-120b"
+
+
 def test_groq_free_tier_translates_and_falls_over_when_limited(tmp_path: Path, monkeypatch):
     from ark_hr.translate import build_translator
 
@@ -417,6 +444,60 @@ def test_missing_model_fails_the_file_instead_of_calling_a_public_api(tmp_path: 
     assert translator.engine == "unavailable"
     with pytest.raises(ModelError):
         translator.structure(SOURCE, "french")
+
+
+def test_a_cv_larger_than_one_megabyte_is_accepted(tmp_path: Path):
+    client = _client(tmp_path, FakeModel())
+    payload = _docx_bytes(SOURCE) + (b" " * (1024 * 1024))
+    response = client.post(
+        "/batches",
+        files=[("files", ("big.docx", payload, "application/octet-stream"))],
+        data={"name": "Big"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["file_count"] == 1
+
+
+def test_a_model_failure_is_not_shown_as_invalid_json(tmp_path: Path):
+    from ark_hr.translate import ModelError
+    from ark_hr.worker import step
+
+    class Boom(FakeModel):
+        def structure(self, source_text: str, language: str, repair: str = ""):
+            raise ModelError("The translation model did not return JSON.")
+
+    client = _client(tmp_path, Boom())
+    response = client.post(
+        "/batches",
+        files=[("files", ("mbarga.docx", _docx_bytes(SOURCE), "application/octet-stream"))],
+        data={"name": "Broken reply"},
+    )
+    app = client.app
+    while step(app):
+        pass
+    body = client.get(f"/batches/{response.json()['id']}").json()
+    reason = body["files"][0]["reason"]
+    assert body["files"][0]["status"] == "Failed"
+    assert "json" not in reason.lower()
+    assert "translated" in reason.lower()
+
+
+def test_a_broken_request_body_is_a_plain_error(tmp_path: Path):
+    client = _client(tmp_path, FakeModel(), phase=2)
+    created = client.post(
+        "/batches",
+        files=[("files", ("mbarga.docx", _docx_bytes(SOURCE), "application/octet-stream"))],
+        data={"name": "Checklist", "score": "true", "job_text": "Five years of logistics."},
+    )
+    assert created.status_code == 200, created.text
+    response = client.put(
+        f"/batches/{created.json()['id']}/checklist",
+        content=b"{",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith("application/json")
+    assert "json" not in response.json()["detail"].lower()
 
 
 def test_local_parser_keeps_the_facts_without_a_model():

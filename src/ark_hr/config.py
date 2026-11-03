@@ -112,7 +112,7 @@ def load_settings() -> Settings:
     root = Path(__file__).resolve().parents[2]
     data = Path(_flag("ARK_HR_DATA_DIR") or (root / "data"))
     allow = tuple(part.strip().lower() for part in _flag("ARK_HR_AI_HOST_ALLOWLIST").split(",") if part.strip())
-    phase_raw = _flag("ARK_HR_PHASE", "1") or "1"
+    phase_raw = _flag("ARK_HR_PHASE", "2") or "2"
     env = _flag("ARK_HR_ENV", "local").lower() or "local"
     local_default = "" if env == "prod" else "hr@grouparkays.com"
     settings = Settings(

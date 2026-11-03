@@ -35,6 +35,15 @@ function Form() {
       setError("Add a zip or at least one CV.");
       return;
     }
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    if (files.length > 100) {
+      setError("A batch can hold at most 100 CVs. Send them as one zip, or split them.");
+      return;
+    }
+    if (total > 200 * 1024 * 1024) {
+      setError("This batch is over the 200 MB limit. Remove some files or send a smaller zip.");
+      return;
+    }
     const body = new FormData();
     files.forEach((file) => body.append("files", file));
     body.append("name", name);

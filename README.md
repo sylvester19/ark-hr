@@ -20,9 +20,7 @@ npm run dev
 
 Open http://localhost:3215 and choose **Continue with Microsoft**. Sign-in uses the same Entra app and the same redirect as ARK IMPEX core: `http://localhost:3000/auth/callback`. The API listens on port 3000, so stop the ARK IMPEX API before starting this one. Nothing in the ARK IMPEX repo is changed.
 
-Day 1 is the default (`ARK_HR_PHASE=1`): Word and text PDFs, checks, progress, zip, history, delete.
-
-Phase 2 (`ARK_HR_PHASE=2`) adds OCR, job-match scoring, retention settings, the daily purge, the ready email, and the audit screen. The code for both phases is in this folder. Go-live still demos Day 1 before Phase 2 is switched on.
+The default is Phase 2 (`ARK_HR_PHASE=2`): Word, PDF, and image CVs, checks, progress, zip, history, delete, job-match scoring, retention, the daily purge, the ready email, and the audit screen. Set `ARK_HR_PHASE=1` to hide the Phase 2 screens. The ready email stays off until `ARK_HR_GRAPH_SENDER` is a mailbox this app may send from. Settings, audit, and bulk delete stay limited to `ARK_HR_ADMIN_EMAILS`.
 
 ## What the checks enforce
 

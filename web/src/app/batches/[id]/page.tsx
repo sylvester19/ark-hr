@@ -3,13 +3,34 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/shell";
-import { api, statusClass, type Batch } from "@/lib/api";
+import { api, statusClass, type Batch, type CvFile } from "@/lib/api";
 
 export default function BatchPage() {
   return (
     <Shell>
       <Detail />
     </Shell>
+  );
+}
+
+function FileNote({ file }: { file: CvFile }) {
+  const [open, setOpen] = useState(false);
+  const parts = [file.ocr_used ? "OCR used." : "", file.reason || ""].filter(Boolean);
+  if (!parts.length) return null;
+  return (
+    <span className="file-note">
+      <button
+        type="button"
+        className="note-btn"
+        aria-expanded={open}
+        aria-label={open ? "Hide the note" : "Show the note"}
+        title={open ? "Hide the note" : "Show the note"}
+        onClick={() => setOpen((value) => !value)}
+      >
+        !
+      </button>
+      {open && <span className="note">{parts.join(" ")}</span>}
+    </span>
   );
 }
 
@@ -144,8 +165,7 @@ function Detail() {
             <tr key={file.id}>
               <td>
                 {file.original_name}
-                {file.ocr_used && <div className="note">OCR used</div>}
-                {file.reason && <div className="note">{file.reason}</div>}
+                <FileNote file={file} />
               </td>
               <td>{file.detected_language || "—"}</td>
               <td>

@@ -9,8 +9,9 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from ark_hr.auth import SESSION, AuthError, exchange_code, login_url, read_session, sign_session
 from ark_hr.config import Settings, load_settings
@@ -38,7 +39,19 @@ def create_app(
 ) -> FastAPI:
     settings = settings or load_settings()
     settings.validate_for_start()
+    _raise_upload_limits()
     app = FastAPI(title="ARK HR – Bulk CV Translation Tool", docs_url=None, redoc_url=None)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": _validation_message(exc)})
+
+    @app.exception_handler(Exception)
+    async def unexpected(_request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, HTTPException):
+            raise exc
+        log.warning("request failed: %s", type(exc).__name__)
+        return JSONResponse(status_code=500, content={"detail": "Something went wrong. Try that again."})
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.public_url],
@@ -136,6 +149,12 @@ def create_app(
             incoming = collect(payloads)
         except IntakeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            log.warning("upload failed: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=400,
+                detail="Those files could not be read. Use a zip of Word, PDF, or image CVs under 200 MB.",
+            ) from exc
         scoring = score.lower() == "true" and settings.phase >= 2
         jd = (job_text or "").strip()
         if job_file is not None and settings.phase >= 2:
@@ -191,7 +210,7 @@ def create_app(
     async def patch_retention(batch_id: str, request: Request) -> dict[str, Any]:
         user = _admin(request)
         _require(app.state.db.batch(batch_id))
-        body = await request.json()
+        body = await _json_body(request)
         mode, days = _retention_choice(str(body.get("choice") or "forever"), body.get("days"))
         created = app.state.db.batch(batch_id)["created_at"]
         app.state.db.set_batch(
@@ -208,7 +227,7 @@ def create_app(
         user = _owned(request, batch_id)
         if settings.phase < 2:
             raise HTTPException(status_code=404, detail="Job-match scoring is part of Phase 2.")
-        body = await request.json()
+        body = await _json_body(request)
         checklist = normalise_checklist(body)
         confirmed = bool(body.get("confirm"))
         app.state.db.set_batch(
@@ -285,7 +304,7 @@ def create_app(
         user = _admin(request)
         if settings.phase < 2:
             raise HTTPException(status_code=404, detail="Retention settings are part of Phase 2.")
-        body = await request.json()
+        body = await _json_body(request)
         mode, days = _retention_choice(str(body.get("choice") or "forever"), body.get("days"))
         app.state.db.update_settings(mode, days, user["sub"])
         return {"ok": True, "retention_mode": mode, "retention_days": days}
@@ -295,7 +314,7 @@ def create_app(
         user = _admin(request)
         if settings.phase < 2:
             raise HTTPException(status_code=404, detail="Bulk delete is part of Phase 2.")
-        body = await request.json()
+        body = await _json_body(request)
         try:
             moment = older_than(body.get("days"), body.get("before"))
         except ValueError as exc:
@@ -317,6 +336,44 @@ def create_app(
         return {"rows": app.state.db.audit_rows()}
 
     return app
+
+
+def _raise_upload_limits() -> None:
+    """Starlette keeps a non-file form field in memory and rejects it past 1 MB.
+
+    A multi-file upload whose part headers are damaged would otherwise fail
+    before the 200 MB batch check can explain the problem.
+    """
+    from starlette.formparsers import MultiPartParser
+
+    MultiPartParser.max_part_size = 210 * 1024 * 1024
+
+
+def _validation_message(exc: RequestValidationError) -> str:
+    errors = exc.errors()
+    for item in errors:
+        kind = str(item.get("type") or "")
+        message = str(item.get("msg") or "")
+        if kind == "json_invalid" or "json" in message.casefold():
+            return "That request was not understood. Refresh the page and try again."
+    if errors:
+        message = str(errors[0].get("msg") or "").strip()
+        if message:
+            return message
+    return "The request was not valid."
+
+
+async def _json_body(request: Request) -> dict[str, Any]:
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="That request was not understood. Refresh the page and try again.",
+        ) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="That request was not understood. Refresh the page and try again.")
+    return body
 
 
 def _translator(settings: Settings):

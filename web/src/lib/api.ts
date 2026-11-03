@@ -42,13 +42,48 @@ export type Batch = {
   }>;
 };
 
-async function parse(response: Response) {
-  const text = await response.text();
-  const body = text ? JSON.parse(text) : {};
-  if (!response.ok) {
-    const detail = body.detail;
-    throw new Error(typeof detail === "string" ? detail : "The request failed.");
+function plainError(status: number, detail: string) {
+  const text = detail.replace(/\s+/g, " ").trim();
+  const lower = text.toLowerCase();
+  if (!text || lower.includes("json") || lower.includes("syntaxerror") || lower.includes("unexpected token")) {
+    if (status === 413 || lower.includes("too large") || lower.includes("exceeded")) {
+      return "This upload is too large. Send one zip, or fewer than 100 CVs, and stay under 200 MB.";
+    }
+    return "Those files could not be uploaded. Send one zip, or fewer files, and try again.";
   }
+  if (lower.includes("part exceeded") || lower.includes("maximum size")) {
+    return "One of those files is too large on its own. Put the CVs in one zip under 200 MB.";
+  }
+  return text;
+}
+
+function detailMessage(status: number, body: unknown, raw: string) {
+  const detail = body && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : null;
+  if (typeof detail === "string") return plainError(status, detail);
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item && typeof item === "object" && "msg" in item ? String(item.msg) : ""))
+      .filter(Boolean);
+    if (messages.length) return plainError(status, messages.join(" "));
+  }
+  if (status === 413) return plainError(413, "too large");
+  if (status === 401) return "Sign in with Microsoft, then try again.";
+  if (status >= 500 || !raw.trim().startsWith("{")) return plainError(status, raw);
+  return "The request failed.";
+}
+
+async function parse(response: Response): Promise<any> {
+  const text = await response.text();
+  let body: unknown = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      if (!response.ok) throw new Error(detailMessage(response.status, null, text));
+      throw new Error("The server sent a reply this page could not read. Refresh and try again.");
+    }
+  }
+  if (!response.ok) throw new Error(detailMessage(response.status, body, text));
   return body;
 }
 

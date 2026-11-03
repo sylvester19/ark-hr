@@ -152,13 +152,9 @@ class GroqTranslator:
     def _json(self, system: str, user: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
         if schema is not None:
             user = f"{user}\n\nUse exactly these JSON keys:\n{json.dumps(schema)}"
-        content = self._complete(system, user, schema)
-        try:
-            return _parse_json_object(content)
-        except json.JSONDecodeError as exc:
-            raise ModelError("The translation model did not return JSON.") from exc
+        return self._complete(system, user, schema)
 
-    def _complete(self, system: str, user: str, schema: dict[str, Any] | None) -> str:
+    def _complete(self, system: str, user: str, schema: dict[str, Any] | None) -> dict[str, Any]:
         last_error = ModelError("The free translation service did not answer.")
         for model in self._models:
             for use_schema in (True, False):
@@ -171,9 +167,15 @@ class GroqTranslator:
                     if use_schema:
                         continue
                     break
-                if content.strip():
-                    self.engine = f"groq:{model}"
-                    return content
+                if not content.strip():
+                    continue
+                try:
+                    parsed = _parse_json_object(content)
+                except (json.JSONDecodeError, ModelError):
+                    last_error = ModelError("This CV could not be translated. Run it again on its own.")
+                    continue
+                self.engine = f"groq:{model}"
+                return parsed
         raise last_error
 
     def _post(self, model: str, system: str, user: str, schema: dict[str, Any] | None) -> str:
@@ -213,7 +215,10 @@ class GroqTranslator:
             raise ModelError("This CV is too long for the free translation limit.")
         if response.status_code >= 400:
             raise ModelError("The free translation service rejected this CV.")
-        message = response.json()["choices"][0]["message"]
+        try:
+            message = response.json()["choices"][0]["message"]
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError) as exc:
+            raise ModelError("The free translation service sent a reply this tool could not read.") from exc
         return str(message.get("content") or "")
 
 
@@ -348,7 +353,7 @@ def _parse_json_object(content: str) -> dict[str, Any]:
         text = text[start : end + 1]
     parsed = json.loads(text)
     if not isinstance(parsed, dict):
-        raise ModelError("The translation model did not return a JSON object.")
+        raise ModelError("This CV could not be translated. Run it again on its own.")
     return parsed
 
 
@@ -490,5 +495,5 @@ class OllamaTranslator:
         except (httpx.HTTPError, KeyError, json.JSONDecodeError) as exc:
             raise ModelError("The translation model is not reachable inside Group Arkays infrastructure.") from exc
         if not isinstance(parsed, dict):
-            raise ModelError("The translation model did not return a JSON object.")
+            raise ModelError("This CV could not be translated. Run it again on its own.")
         return parsed

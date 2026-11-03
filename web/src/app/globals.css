@@ -150,6 +150,12 @@ th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align
 .bar { height: 8px; background: #1a1a20; border-radius: 99px; overflow: hidden; margin: 12px 0; }
 .bar span { display: block; height: 100%; background: var(--primary); }
 .note { color: var(--warning); font-size: 13px; }
+.file-note { display: inline-flex; align-items: flex-start; gap: 8px; margin-left: 8px; max-width: 420px; }
+.note-btn {
+  width: 18px; height: 18px; padding: 0; border-radius: 999px; flex: 0 0 auto;
+  border: 1px solid var(--warning); color: var(--warning); background: transparent;
+  font-size: 12px; line-height: 16px; font-weight: 700;
+}
 .error { color: var(--danger); font-size: 13px; }
 .check { display: flex; gap: 8px; align-items: center; margin: 16px 0; }
 .check label { margin: 0; color: var(--foreground); }
